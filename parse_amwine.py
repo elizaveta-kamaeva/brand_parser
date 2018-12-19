@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
 
+outfile = open('amwine_parsed.csv', 'w', encoding='utf-8')
+
 XML = 'files\\spb.xml'
 feed = ET.parse(XML)
 root = feed.getroot().findall("shop")[0]
@@ -18,7 +20,7 @@ for child in offers.findall("offer"):
         if param.tag == 'url':
             urls.add(param.text)
             n += 1
-    if n > 50:
+    if n > 100:
         break
 
 for url in urls:
@@ -35,20 +37,12 @@ for url in urls:
 
     # find only letters, separated by ['`-]
     eng_list = re.findall('[A-Za-zÀ-ʯ]+'
-                          '(?:[\'`-][A-Za-zÀ-ʯ]+)*', eng_str)
+                          '(?:[\'’`-][A-Za-zÀ-ʯ]+)*', eng_str)
     trans_list = re.findall('[А-Яа-яЁё]+'
-                            '(?:[\'`-][А-Яа-яЁё]+)*', trans_str)
+                            '(?:[\'’`-][А-Яа-яЁё]+)*', trans_str)
 
     if eng_list:
-        print(url, eng_list, trans_list, sep='\n')
-        if len(eng_list) == len(trans_list) == 1:
-            pairs.append((eng_list[0], trans_list[0]))
-
-
-
-
-
-
+        outfile.write(''.format('{};{}\n'.join(eng_list), ' '.join(trans_list)))
 
 
 print('Parsing done. {} lines have been processed.'.format(n))
