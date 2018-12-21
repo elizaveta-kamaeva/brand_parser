@@ -1,83 +1,97 @@
-import re
-import requests
-from bs4 import BeautifulSoup
-import xml.etree.ElementTree as ET
 from jellyfish import levenshtein_distance as levenshtein
 
-import translitor
-
-
-def find_alike(trans_word, rus_list):
+def find_alike(odd_trans, rus_list, eng_word):
     dist_dict = {}
-    en_word = translitor.process(trans_word.lower())
     for ru_word in rus_list:
-        ru_word = ru_word.lower()
-        ldist = levenshtein(en_word, ru_word)
-        print(en_word, ':', ru_word, '-', ldist)
-        if ldist <= 2:
-            return ru_word
+        if ru_word in known:
+            continue
+        ldist = levenshtein(odd_trans, ru_word)
 
-        else:
-            dist_dict[ldist] = ru_word
-        max_prob = max(list(dist_dict.keys()))
-        if max_prob <= 4 and len(ru_word) != len(en_word) != 4:
-            return ru_word
-
+        dist_dict[ldist] = ru_word
+        min_dist = min(list(dist_dict.keys()))
+        if min_dist <= 2:
+            return True, ru_word
+        elif 2 < min_dist <= 4 and (len(ru_word) > 4 and len(eng_word) > 4):
+            return False, ru_word
 
 
-XML = 'files\\spb.xml'
-feed = ET.parse(XML)
-root = feed.getroot().findall("shop")[0]
+infile = open('files\\amwine_parsed (2)-trans.csv', 'r', encoding='utf-8')
+pair_list = infile.readlines()
+infile.close()
 
-offers = root.findall("offers")[0]
-urls = set()
-pairs = []
-empty = []
+del pair_list[0]
+pairs, short, unsure_pairs, empty = set(), set(), set(), set()
+known = set()
+diff_len = []
 n = 0
 
-for child in offers.findall("offer"):
-    for param in child:
-        if param.tag == 'url':
-            urls.add(param.text)
-            n += 1
-    if n > 100:
-        break
+for pair in pair_list:
+    eng_str, trans_str, rus_str = pair.strip().split(';')
+    eng_list, trans_list, rus_list = eng_str.split(), trans_str.split(), rus_str.split()
 
-for url in urls:
-    resp = requests.get(url)
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    title = soup.find("h1", itemprop="name")
-    code = soup.find("div", class_="catalog-element-info__ru-title")
-    eng_str = title.text.strip()
-    trans_str = code.text.strip()
+    # if words can be associated one-to-one
+    if len(eng_list) == len(rus_list) == 1:
+        pairs.add((eng_list[0], rus_list[0]))
 
-    # remove size
-    eng_str = re.sub('\d+\.\d+ \w\Z', '', eng_str)
-    trans_str = re.sub('\d+\.\d+ \w\Z', '', trans_str)
+    # if association is unclear
+    else:
+        if len(eng_list) == len(trans_list):
+            for i in range(len(eng_list)):
+                eng_word, odd_word = eng_list[i], trans_list[i]
+                search_res = find_alike(odd_word, rus_list, eng_word)
+                if search_res:
+                    is_firm, ru_word = search_res
 
-    # find only letters, separated by ['`-]
-    eng_list = re.findall('[A-Za-zÀ-ʯ]+'
-                          '(?:[\'’`-][A-Za-zÀ-ʯ]+)*', eng_str)
-    trans_list = re.findall('[А-Яа-яЁё]+'
-                            '(?:[\'’`-][А-Яа-яЁё]+)*', trans_str)
-
-    if eng_list:
-        print(url, eng_list, trans_list, sep='\n')
-        if len(eng_list) == len(trans_list) == 1:
-            pairs.append((eng_list[0], trans_list[0]))
-        else:
-            for eng_word in eng_list:
-                trans_word = find_alike(eng_word, trans_list)
-                if trans_word:
-                    pairs.append((eng_word, trans_word))
+                    # check if the levenshtein distance is less than 2
+                    if is_firm:
+                        if len(eng_word) > 2 and len(ru_word) > 2:
+                            pairs.add((eng_word, ru_word))
+                            known.add(ru_word)
+                        else:
+                            short.add((eng_word, ru_word))
+                            known.add(ru_word)
+                    else:
+                        unsure_pairs.add((eng_word, ru_word))
                 else:
-                    empty.append((eng_word, trans_str))
+                    empty.add((eng_word, rus_str))
+        else:
+            diff_len.append((eng_str, trans_str))
 
+    n += 1
+    if n % 200 == 0:
+        print('{} lines done'.format(n))
+
+firm_file = open('ready\\amwine_brands-firm(2).csv', 'w', encoding='utf-8')
+shortie_file = open('ready\\amwine_brands-short(2).csv', 'w', encoding='utf-8')
+doubt_file = open('ready\\amwine_brands-doubt(2).csv', 'w', encoding='utf-8')
+notfound_file = open('ready\\amwine_brands-not_found(2).csv', 'w', encoding='utf-8')
+
+firm_file.write('brand,alias\n')
+shortie_file.write('brand,alias\n')
+doubt_file.write('brand,alias\n')
+notfound_file.write('brand,alias\n')
 
 for pair in pairs:
-    print(pair[0], '-', pair[1])
-print('='*100)
-print('Not found pairs for words')
+    firm_file.write('{},{}\n'.format(pair[0], pair[1]))
+
+for lil_pair in short:
+    shortie_file.write('{},{}\n'.format(lil_pair[0], lil_pair[1]))
+
+for dpair in unsure_pairs:
+    doubt_file.write('{},{}\n'.format(dpair[0], dpair[1]))
+
 for emp_pair in empty:
-    print(emp_pair[0], '-', emp_pair[1])
-print('Parsing done. {} lines have been processed.'.format(n))
+    notfound_file.write('{},{}\n'.format(emp_pair[0], emp_pair[1]))
+
+print()
+print('=' * 100)
+if diff_len:
+    print('words having different lengths'.upper())
+    for diff_pair in diff_len:
+        print(diff_pair[0], '-', diff_pair[1])
+else:
+    print('No strings having different lengths found.')
+
+firm_file.close()
+doubt_file.close()
+notfound_file.close()
