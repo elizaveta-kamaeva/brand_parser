@@ -15,6 +15,8 @@ def find_alike(odd_trans, rus_list, eng_word):
             return False, ru_word
 
 
+# requires file format as following: eng_words;translit;ru_words_from_site
+
 infile = open('files\\amwine_parsed (2)-trans.csv', 'r', encoding='utf-8')
 pair_list = infile.readlines()
 infile.close()
